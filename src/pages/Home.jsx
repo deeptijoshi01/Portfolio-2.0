@@ -598,7 +598,7 @@ export default function Home() {
               </div>
               <div className={`fu d3 ${heroVisible ? "on" : ""}`}>
                 <p className="hero-desc">
-                  Frontend-focused developer building <strong>fast, responsive, user-centric web apps</strong> — from
+                  Full Stack developer building <strong>fast, responsive, user-centric web apps</strong> — from
                   interface design to system architecture. Currently at <strong>Trovira</strong>, shipping real-world
                   product features every day.
                 </p>
@@ -649,7 +649,7 @@ export default function Home() {
             <div className="about-grid">
               <div>
                 <div className="about-text">
-                  <p>I'm <strong>Deepti Joshi</strong>, a frontend-focused MERN Stack Developer based in <strong>Nashik, Maharashtra</strong>. I love crafting responsive, pixel-perfect interfaces that users enjoy interacting with.</p>
+                  <p>I'm <strong>Deepti Joshi</strong>, a MERN Stack Developer based in <strong>Nashik, Maharashtra</strong>. I love crafting responsive, pixel-perfect interfaces that users enjoy interacting with.</p>
                   <p>Currently building real-world product features full-time at <strong>Trovira</strong>, a fast-growing startup. Previously interned at <strong>BDx Data Centers</strong> where I worked on finance dashboards and sustainability systems.</p>
                   <p>I care deeply about clean code, scalable architecture, and bridging the gap between great design and solid engineering.</p>
                 </div>
@@ -723,7 +723,7 @@ export default function Home() {
           <div className={`rv rd1 ${skillsVisible ? "on" : ""}`}>
             <div className="sec-label">skills & tools</div>
             <h2 className="sec-title">What I <em>build with</em></h2>
-            <p className="sec-sub">Frontend-first, full-stack capable — from pixel to production.</p>
+            <p className="sec-sub">MERN Stack Developer, full-stack capable — from pixel to production.</p>
           </div>
 
           <div className={`rv rd2 ${skillsVisible ? "on" : ""}`}>
