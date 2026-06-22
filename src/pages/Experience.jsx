@@ -53,7 +53,7 @@ const troviraProjects = [
     client: "Nithya Ayurveda",
     type: "Client Website",
     icon: "🌿",
-    role: "Sole Frontend Developer",
+    role: "Sole MERN Stack Developer",
     badge: "End-to-End Delivery",
     description:
       "Designed and developed the complete responsive website for an Ayurvedic wellness brand, implemented modern UI/UX, optimized performance, and delivered a production-ready solution.",
@@ -65,7 +65,7 @@ const troviraProjects = [
     client: "Wisdom Global School",
     type: "Client Website",
     icon: "🎓",
-    role: "Sole Frontend Developer",
+    role: "Sole MERN Stack Developer",
     badge: "Delivered Independently",
     description:
       "Built and launched a complete institutional website with responsive layouts, optimized user journeys for admissions and academics, and a scalable component architecture.",
@@ -77,7 +77,7 @@ const troviraProjects = [
     client: "Suntech",
     type: "Client Website",
     icon: "☀️",
-    role: "Sole Frontend Developer",
+    role: "Sole MERN Stack Developer",
     badge: "Complete Ownership",
     description:
       "Developed a professional business website for a solar/energy company, translating their services into a clear, modern UI with a reusable design system.",
@@ -89,7 +89,7 @@ const troviraProjects = [
     client: "Internal ERP System",
     type: "Enterprise Software",
     icon: "⚙️",
-    role: "Frontend Developer",
+    role: "MERN Stack Developer",
     badge: "Product Development",
     description:
       "Built complex ERP interfaces — dashboards, forms, workflows, and management modules — covering data handling and role-based access used in real-world operations.",
