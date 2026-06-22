@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "../context/ThemeContext";
 import logo from "../assets/logo.png";
 
@@ -15,11 +15,12 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen]   = useState(false);
   const [scrolled, setScrolled]   = useState(false);
   const [toggling, setToggling]   = useState(false);
-  const [activeIdx, setActiveIdx] = useState(null);
-  const location = useLocation();
-  const menuRef  = useRef(null);
-  const navRef   = useRef(null);
+  const location  = useLocation();
+  const navigate  = useNavigate();
+  const burgerRef = useRef(null);   // ← only watch the burger button for outside-click
+  const navRef    = useRef(null);
 
+  /* ── scroll ── */
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -27,34 +28,81 @@ export default function Navbar() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  /*
+   * FIX #1 — Outside-click handler now:
+   *   • Only listens to "mousedown" (NOT touchstart).
+   *   • Scope is narrowed to the burger button only, not the entire right cluster.
+   *
+   * Why this was broken on mobile:
+   *   The original code attached a `touchstart` listener to the *document*.
+   *   On mobile, touchstart fires BEFORE the NavLink's onClick synthetic event.
+   *   So the sequence was:
+   *     1. User taps a NavLink in the mobile menu.
+   *     2. document touchstart fires → handleOut runs → setMenuOpen(false)
+   *        → overlay opacity:0 / pointer-events:none → DOM tree mutates.
+   *     3. NavLink's click/navigation never completes because React synthetic
+   *        event was swallowed by the DOM mutation.
+   *
+   *   Removing `touchstart` from this handler completely fixes the race.
+   *   Menu closing on nav is handled by the `useEffect([location.pathname])`
+   *   below, which fires AFTER navigation completes.
+   */
   useEffect(() => {
     const handleOut = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+      if (burgerRef.current && !burgerRef.current.contains(e.target)) {
+        setMenuOpen(false);
+      }
     };
     if (menuOpen) {
+      // mousedown only — never touchstart here
       document.addEventListener("mousedown", handleOut);
-      document.addEventListener("touchstart", handleOut);
     }
     return () => {
       document.removeEventListener("mousedown", handleOut);
-      document.removeEventListener("touchstart", handleOut);
     };
   }, [menuOpen]);
 
+  /* FIX #2 — body overflow: clear reliably on unmount too */
   useEffect(() => {
     document.body.style.overflow = menuOpen ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
   }, [menuOpen]);
 
+  /* Close menu after route changes (fires AFTER navigation) */
   useEffect(() => { setMenuOpen(false); }, [location.pathname]);
 
-  const handleToggle = () => {
+  /* ── theme toggle ── */
+  const handleToggle = useCallback(() => {
     setToggling(true);
     setTimeout(() => {
       toggleTheme();
       setTimeout(() => setToggling(false), 700);
     }, 120);
-  };
+  }, [toggleTheme]);
+
+  /*
+   * FIX #3 — Mobile nav handler.
+   *
+   * Instead of relying on NavLink's onClick prop (which on mobile can be
+   * blocked by the overlay's pointer-events or by the touchstart race above),
+   * we use an explicit navigate() call combined with menu close.
+   *
+   * We keep this as a dedicated handler so debug logging is easy to add/remove.
+   */
+  const handleMobileNav = useCallback((e, path) => {
+    // DEBUG — remove in production
+    console.debug("[Navbar] mobile nav clicked:", path);
+
+    e.preventDefault();        // prevent any default anchor behaviour
+    setMenuOpen(false);        // close menu first (overlay pointer-events gone)
+
+    // Small RAF so the overlay transition doesn't compete with navigation paint
+    requestAnimationFrame(() => {
+      navigate(path);
+      // DEBUG
+      console.debug("[Navbar] navigate() called →", path);
+    });
+  }, [navigate]);
 
   const isDark = theme === "dark";
 
@@ -93,7 +141,6 @@ export default function Navbar() {
           --mob-border:         rgba(255,248,230,0.065);
           --mob-active-bg:      rgba(201,163,93,0.07);
           --mob-active-border:  rgba(201,163,93,0.28);
-          /* toggle */
           --tog-track:          #232a52;
           --tog-knob:           #d0ddf5;
           --tog-knob-sh:        rgba(190,210,255,0.4);
@@ -126,21 +173,15 @@ export default function Navbar() {
           --mob-border:         rgba(18,12,4,0.06);
           --mob-active-bg:      rgba(156,114,40,0.065);
           --mob-active-border:  rgba(156,114,40,0.26);
-          /* toggle */
           --tog-track:          #f0a428;
           --tog-knob:           #fff0a0;
           --tog-knob-sh:        rgba(255,210,40,0.55);
           --tog-glow:           rgba(240,160,0,0.4);
         }
 
-        /* ══════════════════════════════════════════
-           RESET / BASE
-        ══════════════════════════════════════════ */
         *, *::before, *::after { box-sizing: border-box; }
 
-        /* ══════════════════════════════════════════
-           NAVBAR SHELL
-        ══════════════════════════════════════════ */
+        /* ══ NAVBAR SHELL ══ */
         .nv {
           position: fixed;
           top: 0; left: 0; right: 0;
@@ -168,8 +209,6 @@ export default function Navbar() {
           border-bottom-color: var(--nv-border-sc);
           box-shadow: var(--nv-shadow-sc);
         }
-
-        /* shimmer accent line at top on scroll */
         .nv::before {
           content: '';
           position: absolute;
@@ -188,9 +227,7 @@ export default function Navbar() {
         }
         .nv.sc::before { width: min(280px, 55vw); }
 
-        /* ══════════════════════════════════════════
-           LOGO  — bigger, more premium, properly fitted
-        ══════════════════════════════════════════ */
+        /* ══ LOGO ══ */
         .nv-logo {
           display: flex;
           align-items: center;
@@ -200,8 +237,6 @@ export default function Navbar() {
           z-index: 2;
           user-select: none;
         }
-
-        /* gradient border ring */
         .nv-logo-ring {
           position: relative;
           width: 56px; height: 56px;
@@ -209,9 +244,7 @@ export default function Navbar() {
           padding: 2px;
           background: linear-gradient(145deg, var(--nv-gold) 0%, var(--nv-sage) 55%, var(--nv-gold) 100%);
           flex-shrink: 0;
-          transition:
-            transform .4s cubic-bezier(.34,1.56,.64,1),
-            box-shadow .4s;
+          transition: transform .4s cubic-bezier(.34,1.56,.64,1), box-shadow .4s;
           background-size: 200% 200%;
           animation: ringShift 6s ease infinite;
         }
@@ -223,7 +256,6 @@ export default function Navbar() {
           transform: rotate(-8deg) scale(1.1);
           box-shadow: 0 0 28px var(--nv-gold-glow), 0 0 56px rgba(159,179,154,0.12);
         }
-        /* outer bloom */
         .nv-logo-ring::before {
           content: '';
           position: absolute; inset: -4px;
@@ -234,7 +266,6 @@ export default function Navbar() {
           transition: opacity .45s;
         }
         .nv-logo:hover .nv-logo-ring::before { opacity: .5; }
-
         .nv-logo-inner {
           width: 100%; height: 100%;
           border-radius: 14px;
@@ -242,13 +273,9 @@ export default function Navbar() {
           display: flex; align-items: center; justify-content: center;
           overflow: hidden; position: relative;
         }
-        .nv-logo-inner::before {
-          content: none;
-        }
         .nv-logo-img {
           width: 100%; height: 100%;
           object-fit: cover;
-          padding: 0;
           position: relative; z-index: 2;
           transition: filter .35s, transform .35s;
         }
@@ -256,11 +283,7 @@ export default function Navbar() {
           filter: brightness(1.12) contrast(1.06) saturate(1.1);
           transform: scale(1.04);
         }
-
-        /* text block */
-        .nv-logo-text {
-          display: flex; flex-direction: column; gap: 3px; line-height: 1;
-        }
+        .nv-logo-text { display: flex; flex-direction: column; gap: 3px; line-height: 1; }
         .nv-logo-name {
           font-family: 'Cormorant Garamond', serif;
           font-size: 16.5px; font-weight: 700;
@@ -275,7 +298,6 @@ export default function Navbar() {
           transition: opacity .3s, letter-spacing .3s;
         }
         .nv-logo:hover .nv-logo-role { opacity: 1; letter-spacing: .28em; }
-
         @media (max-width: 520px) {
           .nv-logo-text { display: none; }
           .nv-logo-ring { width: 48px; height: 48px; border-radius: 14px; }
@@ -283,9 +305,7 @@ export default function Navbar() {
           .nv-logo-inner { border-radius: 11px; }
         }
 
-        /* ══════════════════════════════════════════
-           DESKTOP LINKS — frosted pill cluster
-        ══════════════════════════════════════════ */
+        /* ══ DESKTOP LINKS ══ */
         .nv-links {
           display: flex; align-items: center; gap: 2px;
           list-style: none; margin: 0; padding: 4px;
@@ -324,7 +344,6 @@ export default function Navbar() {
           border-color: var(--nv-active-border);
           font-weight: 500;
         }
-        /* active gold dot */
         .nv-link a.active::after {
           content: '';
           position: absolute; bottom: 2px; left: 50%;
@@ -336,8 +355,6 @@ export default function Navbar() {
         .nv-emoji { font-size: 8.5px; opacity: .4; transition: all .22s; }
         .nv-link a:hover .nv-emoji,
         .nv-link a.active .nv-emoji { opacity: 1; transform: scale(1.35) rotate(-5deg); }
-
-        /* hover glow underline */
         .nv-link-glow {
           position: absolute;
           bottom: -2px; left: 50%;
@@ -351,9 +368,7 @@ export default function Navbar() {
         }
         .nv-link:hover .nv-link-glow { width: 55%; }
 
-        /* ══════════════════════════════════════════
-           RIGHT CLUSTER
-        ══════════════════════════════════════════ */
+        /* ══ RIGHT CLUSTER ══ */
         .nv-right {
           display: flex; align-items: center; gap: 9px;
           flex-shrink: 0; z-index: 2;
@@ -388,9 +403,7 @@ export default function Navbar() {
         }
         @media (max-width: 620px) { .nv-pill { display: none; } }
 
-        /* ══════════════════════════════════════════
-           SUN / MOON TOGGLE  (Dribbble-style)
-        ══════════════════════════════════════════ */
+        /* ══ TOGGLE ══ */
         .nv-tog {
           position: relative;
           width: 64px; height: 33px;
@@ -412,29 +425,20 @@ export default function Navbar() {
             0 2px 10px rgba(0,0,0,0.28);
         }
         .nv-tog:active { transform: scale(.93); }
-        .nv-tog:focus-visible {
-          box-shadow: 0 0 0 3px var(--nv-gold-glow);
-        }
-
-        /* inner light sweep */
+        .nv-tog:focus-visible { box-shadow: 0 0 0 3px var(--nv-gold-glow); }
         .nv-tog::before {
           content: '';
           position: absolute; inset: 0; border-radius: 999px;
-          background: radial-gradient(ellipse at 28% 40%,
-            rgba(255,255,255,0.14) 0%, transparent 65%);
+          background: radial-gradient(ellipse at 28% 40%, rgba(255,255,255,0.14) 0%, transparent 65%);
           pointer-events: none; z-index: 1;
         }
-
-        /* sliding knob */
         .tog-knob {
           position: absolute;
           top: 3.5px;
           width: 26px; height: 26px;
           border-radius: 50%;
           background: var(--tog-knob);
-          box-shadow:
-            0 0 14px var(--tog-knob-sh),
-            0 2px 8px rgba(0,0,0,0.35);
+          box-shadow: 0 0 14px var(--tog-knob-sh), 0 2px 8px rgba(0,0,0,0.35);
           transition:
             left .48s cubic-bezier(.34,1.56,.64,1),
             background .55s,
@@ -445,8 +449,6 @@ export default function Navbar() {
         }
         .nv-tog[data-mode="light"] .tog-knob { left: 3.5px; }
         .nv-tog[data-mode="dark"]  .tog-knob { left: 34.5px; }
-
-        /* moon craters */
         .tog-crater {
           position: absolute; border-radius: 50%;
           background: rgba(150,175,225,0.32);
@@ -456,8 +458,6 @@ export default function Navbar() {
         .tog-c2 { width:4px;height:4px;bottom:5px;right:7px;opacity:0; }
         .nv-tog[data-mode="dark"] .tog-c1,
         .nv-tog[data-mode="dark"] .tog-c2 { opacity:1; }
-
-        /* sun rays — spin slowly */
         .tog-rays {
           position: absolute; inset: 0;
           display: flex; align-items: center; justify-content: center;
@@ -466,7 +466,6 @@ export default function Navbar() {
         }
         @keyframes raysSpin { to { transform: rotate(360deg); } }
         .nv-tog[data-mode="dark"] .tog-rays { animation-play-state: paused; }
-
         .tog-ray {
           position: absolute;
           width: 2px; height: 5px;
@@ -476,8 +475,6 @@ export default function Navbar() {
           transition: opacity .45s;
         }
         .nv-tog[data-mode="dark"] .tog-ray { opacity:0; }
-
-        /* clouds */
         .tog-cloud {
           position: absolute;
           background: rgba(255,255,255,0.52);
@@ -485,22 +482,10 @@ export default function Navbar() {
           transition: opacity .45s, transform .45s;
           z-index: 2;
         }
-        .tog-cl1 {
-          width:15px;height:8px;
-          top:7px;left:30px;
-          box-shadow:-5px 0 0 2px rgba(255,255,255,0.52);
-        }
-        .tog-cl2 {
-          width:10px;height:6px;
-          bottom:8px;left:26px;
-          box-shadow:-3px 0 0 1.5px rgba(255,255,255,0.52);
-        }
+        .tog-cl1 { width:15px;height:8px;top:7px;left:30px;box-shadow:-5px 0 0 2px rgba(255,255,255,0.52); }
+        .tog-cl2 { width:10px;height:6px;bottom:8px;left:26px;box-shadow:-3px 0 0 1.5px rgba(255,255,255,0.52); }
         .nv-tog[data-mode="dark"] .tog-cl1,
-        .nv-tog[data-mode="dark"] .tog-cl2 {
-          opacity:0; transform:translateX(10px);
-        }
-
-        /* stars */
+        .nv-tog[data-mode="dark"] .tog-cl2 { opacity:0; transform:translateX(10px); }
         .tog-star {
           position: absolute; background: #fff;
           border-radius: 50%;
@@ -513,8 +498,6 @@ export default function Navbar() {
         .nv-tog[data-mode="dark"] .tog-s1{ opacity:1; }
         .nv-tog[data-mode="dark"] .tog-s2{ opacity:.65; }
         .nv-tog[data-mode="dark"] .tog-s3{ opacity:.45; }
-
-        /* sun center glyph */
         .tog-sun {
           font-size:11px; line-height:1;
           position:relative; z-index:1;
@@ -523,8 +506,6 @@ export default function Navbar() {
           user-select:none;
         }
         .nv-tog[data-mode="dark"] .tog-sun { opacity:0; transform:scale(.4) rotate(90deg); }
-
-        /* flash on click */
         .nv-tog.flash::after {
           content:'';
           position:absolute;inset:0;border-radius:999px;
@@ -533,9 +514,7 @@ export default function Navbar() {
         }
         @keyframes togFlash { 0%{opacity:1;} 100%{opacity:0;} }
 
-        /* ══════════════════════════════════════════
-           HAMBURGER
-        ══════════════════════════════════════════ */
+        /* ══ HAMBURGER ══ */
         .nv-burger {
           display: none;
           flex-direction: column; justify-content: center; align-items: center; gap: 5px;
@@ -555,7 +534,6 @@ export default function Navbar() {
         .nv-burger:hover { border-color:var(--nv-active-border); transform:scale(1.04); }
         .nv-burger:active { transform:scale(.94); }
         @media (max-width:860px) { .nv-burger { display:flex; } }
-
         .nv-bl {
           width:17px; height:1.5px;
           background:var(--nv-text); border-radius:2px;
@@ -567,50 +545,57 @@ export default function Navbar() {
         .nv-burger.open .nv-bl:nth-child(2){ opacity:0;transform:scaleX(0);width:17px; }
         .nv-burger.open .nv-bl:nth-child(3){ transform:translateY(-6.5px) rotate(-45deg);width:17px; }
 
-        /* ══════════════════════════════════════════
-           MOBILE OVERLAY
-        ══════════════════════════════════════════ */
+        /* ══ MOBILE OVERLAY ══
+         *
+         * FIX #4 — The overlay must NEVER intercept clicks on its children.
+         * The nv-backdrop handles closing; nv-mob and its children must be
+         * fully interactive. All pointer-events are explicitly set correctly.
+         */
         .nv-overlay {
-          position:fixed;inset:0;z-index:9998;
-          pointer-events:none;opacity:0;
-          transition:opacity .38s ease;
+          position: fixed; inset: 0; z-index: 9998;
+          pointer-events: none; opacity: 0;
+          transition: opacity .38s ease;
         }
-        .nv-overlay.open { pointer-events:all;opacity:1; }
-
+        .nv-overlay.open {
+          pointer-events: none;   /* keep none on outer wrapper — backdrop handles it */
+          opacity: 1;
+        }
         .nv-backdrop {
-          position:absolute;inset:0;
-          background:rgba(0,0,0,0.48);
-          backdrop-filter:blur(8px);
-          -webkit-backdrop-filter:blur(8px);
+          position: absolute; inset: 0;
+          background: rgba(0,0,0,0.48);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          pointer-events: all;   /* backdrop IS clickable (to close) */
+          cursor: default;
         }
-
         .nv-mob {
-          position:absolute;top:0;left:0;right:0;
-          background:var(--mob-bg);
-          padding:80px clamp(1.2rem,5vw,2rem) 2.2rem;
-          transform:translateY(-32px) scale(.97);
-          opacity:0;
+          position: absolute; top: 0; left: 0; right: 0;
+          background: var(--mob-bg);
+          padding: 80px clamp(1.2rem,5vw,2rem) 2.2rem;
+          transform: translateY(-32px) scale(.97);
+          opacity: 0;
           transition:
             transform .48s cubic-bezier(.16,1,.3,1),
             opacity .38s ease;
-          border-bottom:1px solid var(--mob-border);
-          border-radius:0 0 30px 30px;
-          box-shadow:0 28px 90px rgba(0,0,0,0.32);
-          max-height:90vh;overflow-y:auto;
+          border-bottom: 1px solid var(--mob-border);
+          border-radius: 0 0 30px 30px;
+          box-shadow: 0 28px 90px rgba(0,0,0,0.32);
+          max-height: 90vh; overflow-y: auto;
+          pointer-events: all;   /* menu panel IS interactive */
         }
         .nv-overlay.open .nv-mob {
-          transform:translateY(0) scale(1);
-          opacity:1;
+          transform: translateY(0) scale(1);
+          opacity: 1;
         }
 
         /* mob availability */
         .nv-mob-avail {
-          display:inline-flex;align-items:center;gap:8px;
-          margin-bottom:1rem;
-          padding:7px 15px;
-          background:var(--nv-pill-bg);
-          border:1px solid var(--nv-pill-border);
-          border-radius:999px;
+          display: inline-flex; align-items: center; gap: 8px;
+          margin-bottom: 1rem;
+          padding: 7px 15px;
+          background: var(--nv-pill-bg);
+          border: 1px solid var(--nv-pill-border);
+          border-radius: 999px;
         }
         .nv-mob-avail-dot {
           width:5px;height:5px;border-radius:50%;
@@ -625,43 +610,67 @@ export default function Navbar() {
 
         /* mob links */
         .nv-mob-list {
-          list-style:none;padding:0;margin:0 0 1.5rem;
-          display:flex;flex-direction:column;gap:8px;
+          list-style: none; padding: 0; margin: 0 0 1.5rem;
+          display: flex; flex-direction: column; gap: 8px;
         }
-        .nv-mob-link {
-          display:flex;align-items:center;
-          text-decoration:none;
-          padding:15px 18px;border-radius:18px;
-          border:1px solid var(--mob-border);
-          background:transparent;
-          transform:translateX(-20px);opacity:0;
-          transition:all .38s cubic-bezier(.16,1,.3,1);
-          position:relative;overflow:hidden;
-        }
-        .nv-overlay.open .nv-mob-link { transform:translateX(0);opacity:1; }
-        .nv-overlay.open .nv-mob-link:nth-child(1){ transition-delay:.06s; }
-        .nv-overlay.open .nv-mob-link:nth-child(2){ transition-delay:.10s; }
-        .nv-overlay.open .nv-mob-link:nth-child(3){ transition-delay:.14s; }
-        .nv-overlay.open .nv-mob-link:nth-child(4){ transition-delay:.18s; }
 
-        /* gold shimmer at top */
+        /*
+         * FIX #5 — .nv-mob-item is an <li> wrapper so HTML is valid.
+         * pointer-events:all ensures clicks pass through to the <button> inside.
+         */
+        .nv-mob-item {
+          pointer-events: all;
+        }
+
+        /*
+         * FIX #6 — Mobile nav links are now <button> elements with explicit
+         * onClick handlers (handleMobileNav) instead of NavLink/anchor tags.
+         * This completely bypasses the touchstart race condition.
+         *
+         * We still compute active state manually via location.pathname.
+         */
+        .nv-mob-link {
+          display: flex; align-items: center;
+          width: 100%;
+          padding: 15px 18px; border-radius: 18px;
+          border: 1px solid var(--mob-border);
+          background: transparent;
+          cursor: pointer;
+          font: inherit;
+          color: inherit;
+          text-align: left;
+          transform: translateX(-20px); opacity: 0;
+          transition:
+            all .38s cubic-bezier(.16,1,.3,1),
+            transform .38s cubic-bezier(.16,1,.3,1),
+            opacity .38s ease;
+          position: relative; overflow: hidden;
+          -webkit-tap-highlight-color: transparent;  /* remove grey flash on iOS */
+          touch-action: manipulation;                /* remove 300ms tap delay */
+          pointer-events: all;
+        }
+        .nv-overlay.open .nv-mob-link { transform: translateX(0); opacity: 1; }
+        .nv-overlay.open .nv-mob-item:nth-child(1) .nv-mob-link { transition-delay: .06s; }
+        .nv-overlay.open .nv-mob-item:nth-child(2) .nv-mob-link { transition-delay: .10s; }
+        .nv-overlay.open .nv-mob-item:nth-child(3) .nv-mob-link { transition-delay: .14s; }
+        .nv-overlay.open .nv-mob-item:nth-child(4) .nv-mob-link { transition-delay: .18s; }
+
         .nv-mob-link::before {
           content:'';position:absolute;top:0;left:0;right:0;height:1px;
           background:linear-gradient(90deg,transparent,var(--nv-gold),transparent);
           opacity:0;transition:opacity .3s;
         }
-        .nv-mob-link:hover::before,.nv-mob-link.active::before { opacity:1; }
-
+        .nv-mob-link:hover::before,
+        .nv-mob-link.active::before { opacity:1; }
         .nv-mob-link:hover {
-          background:var(--mob-active-bg);
-          border-color:var(--mob-active-border);
-          transform:translateX(5px);
+          background: var(--mob-active-bg);
+          border-color: var(--mob-active-border);
+          transform: translateX(5px);
         }
         .nv-mob-link.active {
-          background:var(--mob-active-bg);
-          border-color:var(--mob-active-border);
+          background: var(--mob-active-bg);
+          border-color: var(--mob-active-border);
         }
-        /* active left accent bar */
         .nv-mob-link.active::after {
           content:'';position:absolute;
           left:0;top:18%;height:64%;width:3px;
@@ -685,7 +694,6 @@ export default function Navbar() {
         }
         .nv-mob-link:hover .nv-mob-icon span,
         .nv-mob-link.active .nv-mob-icon span { filter:brightness(0) invert(1); }
-
         .nv-mob-label {
           font-family:'Manrope',sans-serif;
           font-size:15.5px;font-weight:400;color:var(--nv-text);
@@ -730,12 +738,12 @@ export default function Navbar() {
           color:var(--nv-text);
           font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.06em;
           cursor:pointer;transition:all .26s;text-decoration:none;
+          -webkit-tap-highlight-color: transparent;
+          touch-action: manipulation;
         }
         .nv-mob-act:hover { background:var(--nv-gold-dim);border-color:var(--nv-active-border); }
 
-        /* ══════════════════════════════════════════
-           REDUCED MOTION
-        ══════════════════════════════════════════ */
+        /* ══ REDUCED MOTION ══ */
         @media(prefers-reduced-motion:reduce){
           .nv,.nv *,.nv *::before,.nv *::after,
           .nv-overlay,.nv-overlay *,.nv-overlay *::before,.nv-overlay *::after {
@@ -764,7 +772,7 @@ export default function Navbar() {
 
         {/* ── Desktop Links ── */}
         <ul className="nv-links">
-          {navLinks.map((link, i) => (
+          {navLinks.map((link) => (
             <li key={link.path} className="nv-link">
               <NavLink
                 to={link.path}
@@ -779,9 +787,8 @@ export default function Navbar() {
           ))}
         </ul>
 
-        {/* ── Right ── */}
-        <div className="nv-right" ref={menuRef}>
-          {/* pill */}
+        {/* ── Right cluster ── */}
+        <div className="nv-right">
           <div className="nv-pill">
             <span className="nv-pill-dot" />
             Available
@@ -794,14 +801,11 @@ export default function Navbar() {
             onClick={handleToggle}
             aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
           >
-            {/* stars (dark) */}
             <span className="tog-star tog-s1" />
             <span className="tog-star tog-s2" />
             <span className="tog-star tog-s3" />
-            {/* clouds (light) */}
             <span className="tog-cloud tog-cl1" />
             <span className="tog-cloud tog-cl2" />
-            {/* spinning rays (light) */}
             <span className="tog-rays" aria-hidden="true">
               {[0,45,90,135,180,225,270,315].map((deg, i) => (
                 <span
@@ -811,7 +815,6 @@ export default function Navbar() {
                 />
               ))}
             </span>
-            {/* knob */}
             <span className="tog-knob">
               <span className="tog-crater tog-c1" />
               <span className="tog-crater tog-c2" />
@@ -819,11 +822,13 @@ export default function Navbar() {
             </span>
           </button>
 
-          {/* hamburger */}
+          {/* Hamburger — ref narrowed to just this button */}
           <button
+            ref={burgerRef}
             className={`nv-burger${menuOpen ? " open" : ""}`}
             onClick={() => setMenuOpen(p => !p)}
             aria-label="Toggle menu"
+            aria-expanded={menuOpen}
           >
             <span className="nv-bl" />
             <span className="nv-bl" />
@@ -833,8 +838,11 @@ export default function Navbar() {
       </nav>
 
       {/* ═══════════ MOBILE MENU ═══════════ */}
-      <div className={`nv-overlay${menuOpen ? " open" : ""}`}>
+      <div className={`nv-overlay${menuOpen ? " open" : ""}`} aria-hidden={!menuOpen}>
+
+        {/* Backdrop — only this closes the menu on outside click */}
         <div className="nv-backdrop" onClick={() => setMenuOpen(false)} />
+
         <div className="nv-mob">
 
           {/* availability */}
@@ -843,27 +851,40 @@ export default function Navbar() {
             <span className="nv-mob-avail-txt">Open to Opportunities</span>
           </div>
 
-          {/* links */}
+          {/*
+           * FIX #7 — Each nav item is an <li> (valid HTML), containing a <button>
+           * with an explicit handleMobileNav handler.
+           *
+           * Active state is derived from location.pathname directly — no NavLink
+           * needed here, so zero risk of the touch-event race condition.
+           */}
           <ul className="nv-mob-list">
-            {navLinks.map((link, i) => (
-              <NavLink
-                key={link.path}
-                to={link.path}
-                end={link.path === "/"}
-                className={({ isActive }) => `nv-mob-link${isActive ? " active" : ""}`}
-                onClick={() => setMenuOpen(false)}
-                style={{ transitionDelay: menuOpen ? `${0.06 + i * 0.04}s` : "0s" }}
-              >
-                <div className="nv-mob-left">
-                  <div className="nv-mob-icon"><span>{link.emoji}</span></div>
-                  <div>
-                    <div className="nv-mob-label">{link.label}</div>
-                    <div className="nv-mob-sublabel">{link.sub}</div>
-                  </div>
-                </div>
-                <span className="nv-mob-arrow">→</span>
-              </NavLink>
-            ))}
+            {navLinks.map((link) => {
+              const isActive = link.path === "/"
+                ? location.pathname === "/"
+                : location.pathname.startsWith(link.path);
+
+              return (
+                <li key={link.path} className="nv-mob-item">
+                  <button
+                    className={`nv-mob-link${isActive ? " active" : ""}`}
+                    onClick={(e) => handleMobileNav(e, link.path)}
+                    // DEBUG — remove in production:
+                    onTouchStart={() => console.debug("[Navbar] touchstart on:", link.path)}
+                    aria-current={isActive ? "page" : undefined}
+                  >
+                    <div className="nv-mob-left">
+                      <div className="nv-mob-icon"><span>{link.emoji}</span></div>
+                      <div>
+                        <div className="nv-mob-label">{link.label}</div>
+                        <div className="nv-mob-sublabel">{link.sub}</div>
+                      </div>
+                    </div>
+                    <span className="nv-mob-arrow">→</span>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
 
           {/* footer */}
